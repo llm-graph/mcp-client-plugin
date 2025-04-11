@@ -1,41 +1,6 @@
-import type {
-    ManagerConfig,
-    ManagerOptions,
-    ManagerAPI,
-    ManagerStateType,
-    ClientState,
-    Transport,
-    ServerConfig,
-    JsonRpcRequest,
-    JsonRpcResponse,
-    JsonRpcMessage,
-    JsonRpcId,
-    PendingRequests,
-    ClientAPI,
-    StdioTransportConfig,
-    SseTransportConfig,
-    NotificationHandler,
-    Tool,
-    Resource,
-    Prompt,
-    JsonRpcNotification,
-  } from './types';
-  import {
-    DEFAULT_REQUEST_TIMEOUT_MS,
-    JSONRPC_VERSION,
-    MCP_PROTOCOL_VERSION
-  } from './constants';
-  import {
-    generateId,
-    safeJsonParse,
-    createJsonRpcRequest,
-    createMcpError,
-    promiseWithTimeout,
-    processStdioBuffer,
-    createJsonRpcNotification
-  } from './utils';
-  import type { Subprocess } from 'bun';
-  
+import { DEFAULT_REQUEST_TIMEOUT_MS, MCP_PROTOCOL_VERSION } from './constants';
+import { ManagerConfig, ManagerOptions, ManagerStateType, ClientState, StdioTransportConfig, JsonRpcMessage, Transport, JsonRpcRequest, JsonRpcNotification, SseTransportConfig, ClientAPI, Tool, Resource, Prompt, NotificationHandler, ManagerAPI, PendingRequests, JsonRpcResponse } from './types';
+import { createMcpError, processStdioBuffer, safeJsonParse, generateId, createJsonRpcRequest, createJsonRpcNotification } from './utils';
   // --- State Management ---
   
   const createInitialState = (
@@ -107,7 +72,7 @@ import type {
                 while (true) {
                     const { done, value } = await stdoutReader.read();
                     if (done) break;
-                    stdoutBuffer = processStdioBuffer(value, stdoutBuffer, handleMessage, handleError);
+                    stdoutBuffer = processStdioBuffer(new TextDecoder().decode(value), stdoutBuffer, handleMessage, handleError);
                 }
             } catch (err) {
                 handleError(createMcpError(`Error reading stdout from ${serverName}: ${err instanceof Error ? err.message : String(err)}`));
@@ -124,7 +89,7 @@ import type {
                 while (true) {
                     const { done, value } = await stderrReader.read();
                     if (done) break;
-                    stderrBuffer += value.toString('utf8');
+                    stderrBuffer += new TextDecoder().decode(value);
                     // Report stderr content periodically or on newline
                     if (stderrBuffer.includes('\n')) {
                        handleError(createMcpError(`Stderr[${serverName}]: ${stderrBuffer.trim()}`));
@@ -149,7 +114,7 @@ import type {
         const send = async (message: JsonRpcRequest | JsonRpcNotification): Promise<void> => {
           const line = JSON.stringify(message) + '\n';
           try {
-               await Bun.write(proc.stdin, line);
+               await proc.stdin.write(line);
           } catch (writeError) {
               handleError(createMcpError(`Failed to write to stdin for ${serverName}: ${writeError instanceof Error ? writeError.message : String(writeError)}`));
               // Optionally try to close/kill the process here if writing fails
@@ -161,9 +126,7 @@ import type {
         const close = async (): Promise<void> => {
             // Attempt to close streams gracefully first, then kill
             try {
-                if (!proc.stdin.closed) {
-                    await proc.stdin.end();
-                }
+                await proc.stdin.end();
             } catch { /* Ignore errors closing stdin */ }
   
             // Cancel readers before killing
@@ -197,11 +160,16 @@ import type {
     const connect = () => {
         try {
             // Bun's EventSource might be available globally or require specific import
-            // Assuming global for now, adjust if needed.
-            eventSource = new EventSource(config.url, {
-                headers: config.headers,
-                // Consider adding withCredentials if needed, though less common for MCP
-            });
+            const eventSourceInit: EventSourceInit = {};
+            
+            // Add headers if provided (Note: not all implementations support this)
+            if (config.headers) {
+              // Custom code to handle headers if available in your environment
+              // Many EventSource implementations don't support headers directly
+              // You might need a different solution based on your runtime
+            }
+            
+            eventSource = new EventSource(config.url, eventSourceInit);
   
             eventSource.onmessage = (event) => {
                 const message = safeJsonParse(event.data);
@@ -212,9 +180,9 @@ import type {
                 }
             };
   
-            eventSource.onerror = (event) => {
+            eventSource.onerror = () => {
                 // Differentiate between connection errors and other SSE errors if possible
-                const errorMessage = event.message ?? `SSE error for ${serverName}`;
+                const errorMessage = `SSE error for ${serverName}`;
                 handleError(createMcpError(errorMessage));
                 // Consider implementing reconnect logic here if desired
                 close(); // Close on error for now
@@ -289,44 +257,29 @@ import type {
         const id = generateId();
         const request = createJsonRpcRequest(method, params, id);
   
+        // First store the callbacks without a timer
         const timeoutMessage = `Request timed out after ${options.requestTimeoutMs}ms: ${serverName} -> ${method}`;
-        const { P, timer } = promiseWithTimeout(
-            new Promise<TResult>((res, rej) => {
-                // Store resolvers *before* sending the request
-                pendingRequests.set(id, { resolve: res as (value: unknown) => void, reject: rej, timeoutTimer: timer });
-            }),
-            options.requestTimeoutMs,
-            timeoutMessage
-        );
-  
-        // Attach cleanup to the final promise resolution/rejection
-        P.finally(() => {
-            clearTimeout(timer); // Ensure timer is cleared regardless of outcome
+        
+        pendingRequests.set(id, {
+          resolve: resolve as (value: unknown) => void,
+          reject,
+          timeoutTimer: setTimeout(() => {
             pendingRequests.delete(id);
-        }).catch(finalRejectionError => {
-            // This catch is primarily for the timeout error or transport errors during send
-            // Errors from the server response are handled via the stored reject handler
-             if (!pendingRequests.has(id)) {
-                 // If the request was already resolved/rejected (e.g., by server response before timeout)
-                 // then the error here is likely the timeout itself or a send error, reject the outer promise
-                 reject(finalRejectionError);
-             }
-             // If pendingRequests still has the ID, it means the reject handler stored in the map
-             // will handle the rejection when the server responds with an error.
+            reject(createMcpError(timeoutMessage, -32000));
+          }, options.requestTimeoutMs)
         });
   
-  
         transport.send(request).catch(sendError => {
-              // If sending fails immediately, reject the promise
-              const resolver = pendingRequests.get(id);
-              if (resolver) {
-                  clearTimeout(resolver.timeoutTimer);
-                  resolver.reject(sendError); // Use the stored reject handler
-                  pendingRequests.delete(id);
-              } else {
-                  // If the resolver isn't found (e.g., race condition with timeout), reject the outer promise
-                  reject(sendError);
-              }
+          // If sending fails immediately, reject the promise
+          const resolver = pendingRequests.get(id);
+          if (resolver) {
+            if (resolver.timeoutTimer) clearTimeout(resolver.timeoutTimer);
+            resolver.reject(sendError); // Use the stored reject handler
+            pendingRequests.delete(id);
+          } else {
+            // If the resolver isn't found (e.g., race condition with timeout), reject the outer promise
+            reject(sendError);
+          }
         });
       });
     };
@@ -343,9 +296,9 @@ import type {
         }
   
         // Reject any pending requests for this client
-        clientToRemove.pendingRequests.forEach((resolver, id) => {
-            clearTimeout(resolver.timeoutTimer);
-            resolver.reject(createMcpError(`Client ${serverName} disconnected while request ${id} was pending.`));
+        clientToRemove.pendingRequests.forEach((resolver) => {
+            if (resolver.timeoutTimer) clearTimeout(resolver.timeoutTimer);
+            resolver.reject(createMcpError(`Client ${serverName} disconnected while request was pending.`));
         });
         clientToRemove.pendingRequests.clear(); // Clear the map
   
@@ -406,7 +359,7 @@ import type {
       // Response
       const resolver = clientState.pendingRequests.get(message.id);
       if (resolver) {
-        clearTimeout(resolver.timeoutTimer); // Clear timeout now that response received
+        if (resolver.timeoutTimer) clearTimeout(resolver.timeoutTimer);
         if ('error' in message && message.error) {
           resolver.reject(createMcpError(message.error.message, message.error.code, message.error.data));
         } else if ('result' in message) {
@@ -426,15 +379,15 @@ import type {
   
   // --- Main Manager Function ---
   
-  export const manager = async (
+  export const manager = (
     config: ManagerConfig,
     options?: ManagerOptions
-  ): Promise<ManagerAPI> => {
-  
-    // Use a mutable variable within this scope to hold the *current* state reference.
-    // Functions created within this scope will close over this `let` variable.
-    // Updates happen by assigning a new immutable state object to this variable.
+  ): ManagerAPI => {
+    // Initial state
     let managerState: ManagerStateType = createInitialState(config, options);
+    
+    // Track pending connections by server name
+    const pendingConnections = new Map<string, Promise<void>>();
   
     const updateManagerState = (newState: ManagerStateType): void => {
         managerState = newState;
@@ -444,161 +397,266 @@ import type {
         return managerState;
     };
   
-    const useServer = async (serverName: string): Promise<ManagerAPI> => {
+    // This function connects to a server asynchronously
+    const connectToServer = async (serverName: string): Promise<void> => {
+      // Skip if already connected
       if (managerState.activeClients[serverName]) {
-        // Already active, return the current API object
-        return createManagerApi(getManagerState, updateManagerState);
+        return;
       }
-  
-      const serverConfig = managerState.config[serverName];
-      if (!serverConfig) {
-        throw createMcpError(`Server configuration not found for "${serverName}"`);
+      
+      // Make sure we don't have a pending connection already
+      if (pendingConnections.has(serverName)) {
+        // If we have a pending connection, just wait for it
+        try {
+          await pendingConnections.get(serverName);
+          return; // Connection succeeded
+        } catch (error) {
+          // Connection failed, let's try again
+          pendingConnections.delete(serverName);
+        }
       }
-  
-      const pendingRequests: PendingRequests = new Map();
-  
-      // Temporary state holder while initializing
-      let transport: Transport | null = null;
-      let clientStateRef: { current: ClientState } | null = null; // Ref needed for closures
-  
-      const handleError = (error: Error): void => {
-          console.error(`Error from ${serverName}:`, error);
-          // Potentially trigger disconnect or notify user
-          if (clientStateRef?.current) {
-             // If client is already partially/fully initialized, try to disconnect it
-             clientStateRef.current.clientAPI.disconnect().catch(disconnectErr => console.error(`Error during auto-disconnect of ${serverName}:`, disconnectErr));
-          } else if (transport) {
-             // If only transport exists, close it
-             transport.close().catch(closeErr => console.error(`Error closing transport during error handling for ${serverName}:`, closeErr));
-          }
-          // Remove the client if it was added prematurely or partially
-          updateManagerState(removeClientFromState(getManagerState(), serverName));
-      };
-  
-      const handleExit = (code: number | null): void => {
-          console.warn(`Server process ${serverName} exited with code ${code ?? 'unknown'}.`);
-          handleError(createMcpError(`Server process ${serverName} exited unexpectedly.`)); // Treat exit as an error requiring cleanup
-      };
-  
-      const messageHandler = (message: JsonRpcMessage): void => {
-          if (clientStateRef?.current) {
-              handleIncomingMessage(message, clientStateRef.current, managerState.options.onNotification);
-          } else {
-              console.warn(`Received message from ${serverName} before client state was fully initialized. Discarding.`);
-          }
-      };
-  
-  
+      
+      // Create a new connection promise
+      const connectionPromise = (async () => {
+        // Validate server config exists
+        const serverConfig = managerState.config[serverName];
+        if (!serverConfig) {
+          throw createMcpError(`Server configuration not found for "${serverName}"`);
+        }
+        
+        const pendingRequests: PendingRequests = new Map();
+        let transport: Transport | null = null;
+        let clientStateRef: { current: ClientState } | null = null;
+        
+        const handleError = (error: Error): void => {
+            console.error(`Error from ${serverName}:`, error);
+            if (clientStateRef?.current) {
+               clientStateRef.current.clientAPI.disconnect().catch(disconnectErr => 
+                 console.error(`Error during auto-disconnect of ${serverName}:`, disconnectErr));
+            } else if (transport) {
+               transport.close().catch(closeErr => 
+                 console.error(`Error closing transport during error handling for ${serverName}:`, closeErr));
+            }
+            updateManagerState(removeClientFromState(getManagerState(), serverName));
+        };
+        
+        const handleExit = (code: number | null): void => {
+            console.warn(`Server process ${serverName} exited with code ${code ?? 'unknown'}.`);
+            handleError(createMcpError(`Server process ${serverName} exited unexpectedly.`));
+        };
+        
+        const messageHandler = (message: JsonRpcMessage): void => {
+            if (clientStateRef?.current) {
+                handleIncomingMessage(message, clientStateRef.current, managerState.options.onNotification);
+            } else {
+                console.warn(`Received message from ${serverName} before client state was fully initialized. Discarding.`);
+            }
+        };
+        
+        try {
+            // Create Transport
+            if (serverConfig.transport.type === 'stdio') {
+                transport = await createStdioTransport(
+                    serverName, 
+                    serverConfig.transport, 
+                    messageHandler, 
+                    handleError, 
+                    handleExit
+                );
+            } else if (serverConfig.transport.type === 'sse') {
+                transport = await createSseTransport(
+                    serverName, 
+                    serverConfig.transport, 
+                    messageHandler, 
+                    handleError
+                );
+            } else {
+                throw createMcpError(`Unsupported transport type for server ${serverName}`);
+            }
+            
+            // Initialize: Send 'initialize' request
+            const initRequest = createJsonRpcRequest('initialize', {
+                protocolVersion: MCP_PROTOCOL_VERSION,
+                capabilities: {}, // Client capabilities can be added here
+            });
+            
+            // Create a Promise for the initialization response
+            const initResponsePromise = new Promise<JsonRpcResponse>((resolve, reject) => {
+                const timeoutMessage = `Initialization timed out for ${serverName} after ${managerState.options.requestTimeoutMs}ms`;
+                
+                // Store the callbacks with the timer
+                pendingRequests.set(initRequest.id, {
+                  resolve: resolve as (value: unknown) => void,
+                  reject,
+                  timeoutTimer: setTimeout(() => {
+                    pendingRequests.delete(initRequest.id);
+                    reject(createMcpError(timeoutMessage, -32000));
+                  }, managerState.options.requestTimeoutMs)
+                });
+            });
+            
+            // Send the initialization request
+            await transport.send(initRequest);
+            
+            // Wait for the response
+            const initResponse = await initResponsePromise;
+            
+            if (initResponse.error) {
+                throw createMcpError(
+                    `Initialization failed for ${serverName}: ${initResponse.error.message}`, 
+                    initResponse.error.code, 
+                    initResponse.error.data
+                );
+            }
+            
+            // Extract server capabilities
+            const serverCapabilities = (initResponse.result as { capabilities?: Record<string, unknown> })?.capabilities ?? {};
+            
+            // Create client state and API
+            const tempClientState = {
+                serverName,
+                config: serverConfig,
+                transport,
+                pendingRequests,
+                capabilities: serverCapabilities,
+                clientAPI: null as unknown as ClientAPI, // Will be replaced
+            };
+            
+            // Initialize the reference for closures
+            clientStateRef = { current: tempClientState };
+            
+            // Create client API that closes over the reference
+            const clientApi = createClientApi(getManagerState, updateManagerState, clientStateRef);
+            
+            // Update the client state with the API
+            const finalClientState: ClientState = {
+                ...tempClientState,
+                clientAPI: clientApi,
+            };
+            
+            // Update the reference
+            clientStateRef.current = finalClientState;
+            
+            // Send initialized notification (fire and forget)
+            await transport.send(createJsonRpcRequest('initialized', {}) as JsonRpcNotification);
+            
+            // Update manager state
+            updateManagerState(addClientToState(getManagerState(), finalClientState));
+            
+        } catch (error) {
+            if (transport) {
+                await transport.close().catch(closeErr => 
+                  console.error(`Error closing transport during init error for ${serverName}:`, closeErr));
+            }
+            
+            pendingRequests.forEach((resolver) => {
+                if (resolver.timeoutTimer) clearTimeout(resolver.timeoutTimer);
+                resolver.reject(error);
+            });
+            
+            console.error(`Failed to initialize server ${serverName}:`, error);
+            throw error; // Re-throw to notify the caller
+        } finally {
+            // We don't delete the pending connection here
+            // That will be done after the promise resolves or rejects
+        }
+      })();
+      
+      // Store the connection promise
+      pendingConnections.set(serverName, connectionPromise);
+      
       try {
-          // Create Transport
-          if (serverConfig.transport.type === 'stdio') {
-              transport = await createStdioTransport(serverName, serverConfig.transport, messageHandler, handleError, handleExit);
-          } else if (serverConfig.transport.type === 'sse') {
-              transport = await createSseTransport(serverName, serverConfig.transport, messageHandler, handleError);
-          } else {
-              throw createMcpError(`Unsupported transport type for server ${serverName}`);
-          }
-  
-          // Initialize: Send 'initialize' request
-          const initRequest = createJsonRpcRequest('initialize', {
-               protocolVersion: MCP_PROTOCOL_VERSION,
-               capabilities: {}, // Client capabilities can be added here
-          });
-  
-          const initPromise = new Promise<JsonRpcResponse>((resolve, reject) => {
-               const timeoutMessage = `Initialization timed out for ${serverName} after ${managerState.options.requestTimeoutMs}ms`;
-               const { P, timer } = promiseWithTimeout(
-                  new Promise<JsonRpcResponse>((res, rej) => {
-                      pendingRequests.set(initRequest.id, { resolve: res as (value: unknown) => void, reject: rej, timeoutTimer: timer });
-                  }),
-                  managerState.options.requestTimeoutMs,
-                  timeoutMessage
-               );
-               P.then(resolve).catch(reject).finally(() => {
-                  clearTimeout(timer);
-                  pendingRequests.delete(initRequest.id);
-               });
-          });
-  
-          await transport.send(initRequest);
-          const initResponse = await initPromise; // Wait for the initialize response
-  
-          if (initResponse.error) {
-              throw createMcpError(`Initialization failed for ${serverName}: ${initResponse.error.message}`, initResponse.error.code, initResponse.error.data);
-          }
-  
-          const serverCapabilities = (initResponse.result as { capabilities?: Record<string, unknown> })?.capabilities ?? {};
-  
-          // Create Client State and API (after successful initialize)
-          // Must create the ref *before* creating the API that closes over it
-          const tempClientState: Omit<ClientState, 'clientAPI'> = {
-              serverName,
-              config: serverConfig,
-              transport: transport,
-              pendingRequests,
-              capabilities: serverCapabilities,
-          };
-          clientStateRef = { current: null as any }; // Initialize ref
-           // Assign partially built state, then create API
-          clientStateRef.current = { ...tempClientState, clientAPI: null as any };
-          const clientApi = createClientApi(getManagerState, updateManagerState, clientStateRef);
-          // Complete the ClientState with the created API
-          const finalClientState: ClientState = { ...tempClientState, clientAPI: clientApi };
-          clientStateRef.current = finalClientState; // Update ref with complete state
-  
-          // Send 'initialized' notification (fire and forget)
-          await transport.send(createJsonRpcRequest('initialized', {}) as JsonRpcNotification); // Cast needed as ID is omitted for notifications
-  
-          // Update Manager State Immutably
-          updateManagerState(addClientToState(getManagerState(), finalClientState));
-  
-          // Return the new ManagerAPI
-          return createManagerApi(getManagerState, updateManagerState);
-  
-      } catch (error) {
-          // Cleanup transport if created before error occurred
-          if (transport) {
-              await transport.close().catch(closeErr => console.error(`Error closing transport during init error for ${serverName}:`, closeErr));
-          }
-          // Reject any remaining pending requests (e.g., if transport send failed after storing resolver)
-          pendingRequests.forEach((resolver, id) => {
-              clearTimeout(resolver.timeoutTimer);
-              resolver.reject(error); // Reject with the initialization error
-          });
-          console.error(`Failed to initialize server ${serverName}:`, error);
-          throw error; // Re-throw the error after cleanup attempts
+        // Wait for connection to complete
+        await connectionPromise;
+      } finally {
+        // Always clean up the pending connection regardless of success/failure
+        pendingConnections.delete(serverName);
       }
     };
   
+    // The use method exposed in the API
+    const useServer = async (serverName: string): Promise<ManagerAPI> => {
+      try {
+        // Connect to the server and wait for completion
+        await connectToServer(serverName);
+        // Return a new manager instance (chainable)
+        return createManagerApi();
+      } catch (error) {
+        // Re-throw the error
+        throw error;
+      }
+    };
+  
+    // Get client API for a specific server
     const getClient = (serverName: string): ClientAPI | undefined => {
+      // If there's a pending connection for this server, we can't wait here
+      const pending = pendingConnections.get(serverName);
+      if (pending) {
+        // We need to wait for the connection to complete before we can get the client
+        // This will throw an error if the connection fails, which is expected behavior
+        // Return undefined since we can't wait for the promise to resolve in a synchronous function
+        pending.catch(err => console.error(`Error connecting to ${serverName}:`, err));
+      }
+      
+      // Return the client if it exists
       return managerState.activeClients[serverName]?.clientAPI;
     };
   
+    // Get client API for a specific server and wait for pending connection if needed
+    const getClientAsync = async (serverName: string): Promise<ClientAPI | undefined> => {
+      // If there's a pending connection for this server, wait for it first
+      const pending = pendingConnections.get(serverName);
+      if (pending) {
+        try {
+          await pending;
+        } catch (err) {
+          console.error(`Error connecting to ${serverName}:`, err);
+          return undefined;
+        }
+      }
+      
+      // Return the client if it exists
+      return managerState.activeClients[serverName]?.clientAPI;
+    };
+  
+    // Disconnect all active clients
     const disconnectAll = async (): Promise<void> => {
-      const currentClients = Object.values(managerState.activeClients); // Get clients from current state
+      // Wait for all pending connections to complete (either successfully or with errors)
+      if (pendingConnections.size > 0) {
+        // Create a list of all pending connections
+        const allPendingConnections = Array.from(pendingConnections.values());
+        
+        // Wait for all connections to settle (either resolve or reject)
+        await Promise.allSettled(allPendingConnections);
+      }
+      
+      // Get all active clients
+      const currentClients = Object.values(managerState.activeClients);
+      
+      // Disconnect each client
       const disconnectPromises = currentClients.map(client =>
           client.clientAPI.disconnect().catch(err => {
-              // Log error but continue disconnecting others
               console.error(`Error disconnecting client ${client.serverName}:`, err);
-          })
-      );
+          }));
+      
+      // Wait for all disconnect operations to complete
       await Promise.all(disconnectPromises);
-      // State should be updated by individual disconnect calls
     };
   
-    // Function to create the manager API object, closing over the state accessors
-    const createManagerApi = (
-        getState: () => ManagerStateType,
-        updateState: (newState: ManagerStateType) => void
-    ): ManagerAPI => {
-        return Object.freeze({
-            use: useServer, // Note: useServer itself uses getState/updateState from the outer scope
-            getClient: getClient, // getClient uses getState from the outer scope
-            disconnectAll: disconnectAll, // disconnectAll uses getState from the outer scope
-            _getState: getState // Expose state getter
-        });
+    // Create the manager API
+    const createManagerApi = (): ManagerAPI => {
+      return Object.freeze({
+          use: useServer,
+          getClient,
+          getClientAsync,
+          disconnectAll,
+          _getState: getManagerState
+      });
     };
   
-    // Return the initial API object
-    return createManagerApi(getManagerState, updateManagerState);
+    return createManagerApi();
   };
+  
+  // --- Export the Manager Function ---
+  
+  export const managerFunction = manager;

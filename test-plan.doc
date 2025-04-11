@@ -1,0 +1,106 @@
+**Testing Environment Notes:**
+
+- [ ] Tests will require the ability to spawn child processes (for stdio transport).
+- [ ] Tests will require the ability to run a simple HTTP server capable of handling POST requests and sending Server-Sent Events (for SSE transport).
+- [ ] Bun's test runner (`bun test`) is assumed.
+- [ ] No mocking.
+
+---
+
+**Test Plan: MCP Client Plugin**
+
+**I. Manager Initialization & Configuration**
+
+- [ ] 1. **Title:** `manager(): Successfully initializes with a valid stdio configuration`
+    *   **Description:** Verify that calling `manager()` with a config containing only valid `stdio` server definitions resolves successfully and returns a valid `ManagerAPI` object without errors.
+- [ ] 2. **Title:** `manager(): Successfully initializes with a valid SSE configuration`
+    *   **Description:** Verify that calling `manager()` with a config containing only valid `sse` server definitions resolves successfully and returns a valid `ManagerAPI` object without errors.
+- [ ] 3. **Title:** `manager(): Successfully initializes with a mixed stdio and SSE configuration`
+    *   **Description:** Verify `manager()` handles a configuration containing both `stdio` and `sse` server types without errors, returning a valid `ManagerAPI`.
+- [ ] 4. **Title:** `manager(): Handles initialization with an empty configuration`
+    *   **Description:** Verify `manager()` resolves successfully with an empty `{}` config object, returning a `ManagerAPI` with no clients to activate.
+- [ ] 5. **Title:** `manager(): Stores notification handler correctly`
+    *   **Description:** Provide an `onNotification` handler in options. While not testing the callback *invocation* here, verify internally (if possible via state inspection or side-effects) that the handler function is correctly associated with the manager state.
+
+**II. Server Activation & Management (`.use`)**
+
+- [ ] 6. **Title:** `use(): Successfully activates a single stdio server`
+    *   **Description:** Call `.use()` on a manager initialized with a valid stdio config. Verify the promise resolves, a process is spawned, and the returned `ManagerAPI` reflects the active client.
+- [ ] 7. **Title:** `use(): Successfully activates a single SSE server`
+    *   **Description:** Call `.use()` on a manager initialized with a valid SSE config. Verify the promise resolves, connection logic (e.g., sending `initialize`) completes, and the returned `ManagerAPI` reflects the active client.
+- [ ] 8. **Title:** `use(): Chain activates multiple different servers sequentially (stdio + sse)`
+    *   **Description:** Initialize with both stdio and SSE configs. Chain `.use('stdioServer').use('sseServer')`. Verify both resolve successfully and the final `ManagerAPI` state reflects both active clients.
+- [ ] 9. **Title:** `use(): Returns a new ManagerAPI instance (immutability)`
+    *   **Description:** Capture the `ManagerAPI` object before and after a successful `.use()` call. Verify that the two objects are not the same instance (reference inequality), demonstrating immutable updates.
+- [ ] 10. **Title:** `use(): Handles activation failure for invalid stdio command`
+    *   **Description:** Configure a stdio server with a non-existent command. Call `.use()`. Verify the promise rejects with an appropriate error.
+- [ ] 11. **Title:** `use(): Handles activation failure for unreachable SSE URL`
+    *   **Description:** Configure an SSE server with an invalid/unreachable URL. Call `.use()`. Verify the promise rejects with a connection error.
+- [ ] 12. **Title:** `use(): Handles activation failure if server sends invalid initialize response`
+    *   **Description:** Connect to a test server that sends a malformed or error response during the `initialize` phase. Verify `.use()` rejects appropriately.
+- [ ] 13. **Title:** `use(): Idempotency - Calling use() multiple times for the same server`
+    *   **Description:** Call `.use('serverA')` successfully. Call `.use('serverA')` again. Verify it resolves correctly (ideally without re-spawning/re-connecting) and the state remains consistent.
+
+**III. Client Retrieval (`.getClient`)**
+
+- [ ] 14. **Title:** `getClient(): Returns valid ClientAPI after successful use()`
+    *   **Description:** After successfully calling `.use('serverA')`, call `manager.getClient('serverA')`. Verify it returns a defined `ClientAPI` object.
+- [ ] 15. **Title:** `getClient(): Returns undefined for inactive server`
+    *   **Description:** Initialize the manager but *do not* call `.use('serverA')`. Call `manager.getClient('serverA')`. Verify it returns `undefined`.
+- [ ] 16. **Title:** `getClient(): Returns undefined for server name not in config`
+    *   **Description:** Call `manager.getClient('nonExistentServer')`. Verify it returns `undefined`.
+- [ ] 17. **Title:** `getClient(): Returns undefined after activation failure`
+    *   **Description:** Cause `.use('serverA')` to fail. Call `manager.getClient('serverA')`. Verify it returns `undefined`.
+- [ ] 18. **Title:** `getClient(): Returns distinct ClientAPI instances for different servers`
+    *   **Description:** Successfully activate 'serverA' and 'serverB'. Retrieve both clients via `getClient`. Verify the returned `ClientAPI` objects are distinct.
+
+**IV. Client API Operations (Requires Server Interaction)**
+
+- [ ] 19. **Title:** `ClientAPI.listTools(): Successfully retrieves tools from stdio server`
+    *   **Description:** Activate a stdio server providing mock tools. Call `listTools()` on its client. Verify the promise resolves with the expected tool array.
+- [ ] 20. **Title:** `ClientAPI.listTools(): Successfully retrieves tools from SSE server`
+    *   **Description:** Activate an SSE server providing mock tools. Call `listTools()` on its client. Verify the promise resolves with the expected tool array.
+- [ ] 21. **Title:** `ClientAPI.callTool(): Successfully calls a tool with parameters (stdio)`
+    *   **Description:** Activate a stdio server with a test tool. Call `callTool()` with valid parameters. Verify the promise resolves with the expected result from the server.
+- [ ] 22. **Title:** `ClientAPI.callTool(): Successfully calls a tool with parameters (sse)`
+    *   **Description:** Activate an SSE server with a test tool. Call `callTool()` with valid parameters. Verify the promise resolves with the expected result from the server.
+- [ ] 23. **Title:** `ClientAPI.callTool(): Handles JSON-RPC error response from server`
+    *   **Description:** Call `callTool()` for a method the test server will respond to with a standard JSON-RPC error (e.g., MethodNotFound). Verify the promise rejects with an error reflecting the server's response.
+- [ ] 24. **Title:** `ClientAPI.callTool(): Handles malformed JSON response from server`
+    *   **Description:** Configure the test server to send invalid JSON in response to a `callTool` request. Verify the promise rejects with a parsing error.
+- [ ] 25. **Title:** `ClientAPI.readResource(): Successfully reads resource data (stdio)`
+    *   **Description:** Activate a stdio server providing a resource. Call `readResource()`. Verify the promise resolves with the expected resource content.
+- [ ] 26. **Title:** `ClientAPI.readResource(): Successfully reads resource data (sse)`
+    *   **Description:** Activate an SSE server providing a resource. Call `readResource()`. Verify the promise resolves with the expected resource content.
+- [ ] 27. **Title:** `ClientAPI Operations: Function correctly when interleaved across multiple clients`
+    *   **Description:** Activate both a stdio and an SSE server. Make calls (`listTools`, `callTool`) alternating between the two clients. Verify all operations complete successfully with the correct results.
+
+**V. Notification Handling (Requires Server Interaction)**
+
+- [ ] 28. **Title:** `onNotification Handler: Called for notifications from stdio server`
+    *   **Description:** Initialize the manager with an `onNotification` spy handler. Activate a stdio server configured to send a notification. Verify the spy is called once with the correct server name and notification payload.
+- [ ] 29. **Title:** `onNotification Handler: Called for notifications from SSE server`
+    *   **Description:** Initialize the manager with an `onNotification` spy handler. Activate an SSE server configured to send a notification via an SSE event. Verify the spy is called once with the correct server name and notification payload.
+- [ ] 30. **Title:** `onNotification Handler: Not called if no handler provided`
+    *   **Description:** Initialize the manager *without* an `onNotification` handler. Trigger a server notification. Verify no errors occur and no unexpected callbacks are made.
+- [ ] 31. **Title:** `onNotification Handler: Handles multiple notifications from different servers`
+    *   **Description:** Activate both stdio and SSE servers. Trigger notifications from both. Verify the `onNotification` handler is called correctly for each, with the appropriate `serverName`.
+
+**VI. Cleanup (`disconnect`, `disconnectAll`)**
+
+- [ ] 32. **Title:** `ClientAPI.disconnect(): Closes connection for a specific stdio server`
+    *   **Description:** Activate a stdio server. Call `disconnect()` on its `ClientAPI`. Verify the associated child process is terminated and the transport is marked closed.
+- [ ] 33. **Title:** `ClientAPI.disconnect(): Closes connection for a specific SSE server`
+    *   **Description:** Activate an SSE server. Call `disconnect()` on its `ClientAPI`. Verify the SSE connection is closed.
+- [ ] 34. **Title:** `disconnectAll(): Closes connections for all active servers (stdio + sse)`
+    *   **Description:** Activate multiple servers (stdio and sse). Call `manager.disconnectAll()`. Verify all child processes are terminated and all SSE connections are closed.
+- [ ] 35. **Title:** `getClient(): Returns undefined after disconnect()`
+    *   **Description:** Activate 'serverA', get its client, call `clientA.disconnect()`. Afterwards, call `manager.getClient('serverA')`. Verify it returns `undefined`. (Note: This depends on whether disconnect updates the central manager state).
+- [ ] 36. **Title:** `getClient(): Returns undefined for all clients after disconnectAll()`
+    *   **Description:** Activate multiple servers, call `manager.disconnectAll()`. Afterwards, call `getClient()` for each originally active server. Verify all return `undefined`.
+- [ ] 37. **Title:** `disconnectAll(): Handles being called when no servers are active`
+    *   **Description:** Initialize a manager but activate no servers. Call `disconnectAll()`. Verify it completes without errors.
+- [ ] 38. **Title:** `disconnectAll(): Handles being called multiple times`
+    *   **Description:** Call `disconnectAll()` successfully. Call it again. Verify it completes without errors.
+
+---

@@ -11,7 +11,7 @@
     // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
+    "verbatimModuleSyntax": false,
     "noEmit": true,
 
     // Best practices
@@ -26,7 +26,6 @@
     // Stricter type checking
     "noImplicitAny": true,
     "strictNullChecks": true,
-    "noImplicitReturns": true,
 
     // Stricter code quality
     "noUnusedLocals": true,
@@ -36,6 +35,6 @@
     // Bun specific types (install @types/bun)
     "types": ["bun-types"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/*.ts", "test/**/*.ts", "src/index.ts"],
   "exclude": ["node_modules", "dist"]
 }

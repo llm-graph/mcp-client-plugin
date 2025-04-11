@@ -1,11 +1,37 @@
 {
   "name": "mcp-client-plugin",
+  "version": "0.1.0",
+  "description": "Zero Dependencies, Pure Functionality MCP Client Plugin Built for Bun",
   "module": "index.ts",
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "bun build ./index.ts --outdir ./dist --target node",
+    "test": "bun test",
+    "test:unit": "bun test test/unit",
+    "test:e2e": "bun test test/e2e",
+    "check": "bun tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "mcp",
+    "client",
+    "plugin",
+    "bun",
+    "functional"
+  ],
+  "author": "",
+  "license": "MIT",
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
-  }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
 }

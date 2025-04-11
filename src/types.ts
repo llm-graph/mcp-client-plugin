@@ -139,10 +139,13 @@ export type ClientAPI = Readonly<{
 
 export type ManagerAPI = Readonly<{
   /** Connects to and initializes a server defined in the configuration. */
-  use: (serverName: string) => Promise<ManagerAPI>; // Use string key for flexibility
+  use: (serverName: string) => Promise<ManagerAPI>; // Return Promise<ManagerAPI> to allow awaiting connection
 
   /** Retrieves the API for an already connected and initialized client. */
   getClient: (serverName: string) => ClientAPI | undefined;
+
+  /** Retrieves the API for an already connected and initialized client, waiting for pending connections. */
+  getClientAsync: (serverName: string) => Promise<ClientAPI | undefined>;
 
   /** Disconnects all managed clients and terminates their server processes/connections. */
   disconnectAll: () => Promise<void>;
@@ -153,11 +156,12 @@ export type ManagerAPI = Readonly<{
 
 // --- Internal State Types ---
 
-export type RequestResolver = Readonly<{
+// Make this mutable to allow setting the timer after creation
+export type RequestResolver = {
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
-  timeoutTimer: Timer;
-}>;
+  timeoutTimer: number | NodeJS.Timeout | null; // Support both number and Timeout object
+};
 
 // Using a mutable Map here is a pragmatic choice for performance and simplicity
 // in a zero-dependency context. True immutability would require persistent structures.
