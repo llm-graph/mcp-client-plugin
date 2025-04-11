@@ -1,0 +1,113 @@
+import type {
+    JsonRpcId,
+    JsonRpcRequest,
+    JsonRpcResponse,
+    JsonRpcError,
+    JsonRpcMessage,
+    JsonRpcNotification,
+  } from './types';
+  import { JSONRPC_VERSION } from './constants';
+  
+  let idCounter = 0;
+  
+  export function generateId(): number {
+    return idCounter++;
+  }
+  
+  export function safeJsonParse(text: string): JsonRpcMessage | undefined {
+    try {
+      const parsed = JSON.parse(text);
+      // Basic validation to check if it looks like a JSON-RPC message
+      if (typeof parsed === 'object' && parsed !== null && parsed.jsonrpc === JSONRPC_VERSION) {
+        return parsed as JsonRpcMessage;
+      }
+      return undefined;
+    } catch (e) {
+      return undefined;
+    }
+  }
+  
+  export function createJsonRpcRequest(
+    method: string,
+    params?: unknown,
+    id?: JsonRpcId
+  ): JsonRpcRequest {
+    return {
+      jsonrpc: JSONRPC_VERSION,
+      id: id ?? generateId(),
+      method,
+      params,
+    };
+  }
+  
+  export function createJsonRpcNotification(
+      method: string,
+      params?: unknown,
+  ): Omit<JsonRpcNotification, 'jsonrpc'> { // Use Omit for internal consistency if needed
+      return { method, params };
+  }
+  
+  
+  export function createJsonRpcErrorResponse(
+      id: JsonRpcId,
+      code: number,
+      message: string,
+      data?: unknown
+  ): JsonRpcResponse {
+      return {
+          jsonrpc: JSONRPC_VERSION,
+          id,
+          error: { code, message, data },
+      };
+  }
+  
+  export function createMcpError(message: string, code?: number, data?: unknown): Error {
+      const error = new Error(message);
+      (error as Error & { code?: number; data?: unknown }).code = code;
+      (error as Error & { code?: number; data?: unknown }).data = data;
+      return error;
+  }
+  
+  export function promiseWithTimeout<T>(
+    promise: Promise<T>,
+    ms: number,
+    timeoutMessage: string
+  ): { P: Promise<T>, timer: Timer } {
+    let timer: Timer;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(createMcpError(timeoutMessage, -32000)); // Custom timeout error code
+      }, ms);
+    });
+    // Type assertion needed because TS doesn't know timer is assigned in the Promise constructor
+    return { P: Promise.race([promise, timeoutPromise]), timer: timer! };
+  }
+  
+  export function processStdioBuffer(
+      chunk: Buffer,
+      existingBuffer: string,
+      onMessage: (message: JsonRpcMessage) => void,
+      onError: (error: Error) => void
+  ): string {
+      let buffer = existingBuffer + chunk.toString('utf8');
+      let newlineIndex;
+  
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.substring(0, newlineIndex);
+          buffer = buffer.substring(newlineIndex + 1);
+  
+          if (line.trim().length > 0) {
+              const message = safeJsonParse(line);
+              if (message) {
+                  try {
+                      onMessage(message);
+                  } catch (handlerError) {
+                      onError(createMcpError(`Error processing message: ${handlerError instanceof Error ? handlerError.message : String(handlerError)}`));
+                  }
+              } else {
+                  onError(createMcpError(`Received invalid JSON line: ${line.substring(0, 100)}...`));
+              }
+          }
+      }
+      return buffer; // Return the remaining part of the buffer
+  }
