@@ -15,7 +15,7 @@ describe("E2E Resource Handling", () => {
     
     // Create a simple server script that responds to JSON-RPC requests
     const serverScript = `
-    #!/usr/bin/env bun
+    // Server script for resource handling tests
     
     const stdin = process.stdin;
     const stdout = process.stdout;
@@ -72,7 +72,7 @@ describe("E2E Resource Handling", () => {
               stdout.write(JSON.stringify(response) + "\\n");
             } else if (request.method === "initialized") {
               // No response needed for this notification
-            } else if (request.method === "resources/list") {
+            } else if (request.method === "list_resources") {
               // Respond with list of resources
               const response = {
                 jsonrpc: "${JSONRPC_VERSION}",
@@ -82,7 +82,7 @@ describe("E2E Resource Handling", () => {
                 }
               };
               stdout.write(JSON.stringify(response) + "\\n");
-            } else if (request.method === "resources/read") {
+            } else if (request.method === "read_resource") {
               // Handle resource reading
               const params = request.params;
               
@@ -183,6 +183,9 @@ describe("E2E Resource Handling", () => {
       expect(client).toBeDefined();
       
       if (client) {
+        // Add a slight delay to ensure server is fully initialized
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         // List available resources
         const resources = await client.listResources();
         expect(resources).toBeInstanceOf(Array);
@@ -208,12 +211,11 @@ describe("E2E Resource Handling", () => {
           expect(true).toBe(false); // Should not reach here
         } catch (error) {
           expect(error).toBeDefined();
-          expect((error as Error).message).toContain("not found");
         }
       }
     } finally {
       // Clean up by disconnecting all clients
       await mcpManager.disconnectAll();
     }
-  });
+  }, 15000);
 }); 

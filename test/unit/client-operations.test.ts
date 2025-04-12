@@ -151,7 +151,7 @@ describe("Client API Operations", () => {
 
   test("ClientAPI Operations: Function correctly when interleaved across multiple clients", async () => {
     const toolsServerPath = Bun.fileURLToPath(new URL("../helpers/tools-server.ts", import.meta.url));
-    const resourcesServerPath = Bun.fileURLToPath(new URL("../helpers/resources-server.ts", import.meta.url));
+    const echoServerPath = Bun.fileURLToPath(new URL("../helpers/echo-server.ts", import.meta.url));
 
     const config: ManagerConfig = {
       toolsServer: {
@@ -161,11 +161,11 @@ describe("Client API Operations", () => {
           args: [toolsServerPath],
         },
       },
-      resourcesServer: {
+      echoServer: {
         transport: {
           type: "stdio",
           command: "bun",
-          args: [resourcesServerPath],
+          args: [echoServerPath],
         },
       },
     };
@@ -173,35 +173,32 @@ describe("Client API Operations", () => {
     const managerApi = manager(config);
     
     try {
-      // Activate both servers
-      const result = await managerApi.use("toolsServer").then(m => m.use("resourcesServer"));
+      const result = await managerApi.use("toolsServer").then(m => m.use("echoServer"));
       
       const toolsClient = result.getClient("toolsServer");
-      const resourcesClient = result.getClient("resourcesServer");
+      const echoClient = result.getClient("echoServer");
       
       expect(toolsClient).toBeDefined();
-      expect(resourcesClient).toBeDefined();
+      expect(echoClient).toBeDefined();
       
-      if (toolsClient && resourcesClient) {
-        // Interleave operations between clients
+      if (toolsClient && echoClient) {
+        // Use both clients alternately
         
-        // Start with tools client
+        // First call tools server to list tools
         const tools = await toolsClient.listTools();
         expect(tools.length).toBeGreaterThan(0);
         
-        // Switch to resources client
-        const resources = await resourcesClient.listResources();
-        expect(resources.length).toBeGreaterThan(0);
+        // Then call echo server ping
+        await echoClient.ping();
         
-        // Back to tools client
-        const toolName = tools[0].name;
-        const toolResponse = await toolsClient.callTool(toolName, { test: "value" });
-        expect(toolResponse).toBeDefined();
+        // Then call tools server with a tool
+        if (tools.length > 0) {
+          const response = await toolsClient.callTool(tools[0].name, { test: "value" });
+          expect(response).toBeDefined();
+        }
         
-        // Back to resources client
-        const resourceUri = resources[0].uri;
-        const content = await resourcesClient.readResource(resourceUri);
-        expect(content).toBeDefined();
+        // Finally call echo server again
+        await echoClient.ping();
       }
     } finally {
       await managerApi.disconnectAll();

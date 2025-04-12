@@ -24,7 +24,6 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.9.0",
     "@types/bun": "latest"
   },
   "peerDependencies": {

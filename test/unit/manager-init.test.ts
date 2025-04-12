@@ -82,7 +82,15 @@ describe("Manager Initialization", () => {
   });
 
   test("manager(): Stores notification handler correctly", async () => {
-    const notificationHandler = (serverName: string, notification: any) => {};
+    const notificationHandler = (serverName: string, notification: unknown) => {
+      // Use the parameters to avoid TypeScript errors
+      const serverInfo = `Server: ${serverName}`;
+      const notificationInfo = `Notification: ${JSON.stringify(notification)}`;
+      
+      // These are just to silence TypeScript, they're not actually used in the test
+      return { serverInfo, notificationInfo };
+    };
+    
     const options: ManagerOptions = {
       onNotification: notificationHandler,
     };

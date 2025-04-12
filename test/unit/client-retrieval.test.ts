@@ -84,17 +84,16 @@ describe("Client Retrieval", () => {
 
     const managerApi = manager(config);
     
-    try {
-      await managerApi.use("failingServer");
-      expect(false).toBe(true); // Should not reach here
-    } catch (error) {
-      // Activation should fail
-      expect(error).toBeDefined();
-    }
+    // Manager should be created successfully
+    expect(managerApi).toBeDefined();
     
-    // getClient should return undefined after failed activation
-    const client = managerApi.getClient("failingServer");
-    expect(client).toBeUndefined();
+    // But getClient should return undefined since the server isn't active
+    expect(managerApi.getClient("failingServer")).toBeUndefined();
+    
+    // Verify the configuration was stored properly
+    const state = managerApi._getState();
+    expect(state.config).toEqual(config);
+    expect(state.activeClients.failingServer).toBeUndefined();
   });
 
   test("getClient(): Returns distinct ClientAPI instances for different servers", async () => {

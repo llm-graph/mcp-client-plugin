@@ -1,16 +1,13 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { manager } from "../../src/core";
-import { setupTestEnv, cleanupTestEnv } from "./e2e-util";
-import { JSONRPC_VERSION } from "../../src/constants";
 import type { ManagerConfig } from "../../src/types";
-import { join } from "path";
-import { writeFile } from "fs/promises";
 
 const TIMEOUT = 10000; // Increase timeout to 10 seconds
 
 describe("E2E Simple Echo Test", () => {
   // Test a much simpler approach - use one of our existing helper files
   test("Use the pre-built echo-server.ts helper", async () => {
+    // Import only what we need for the test
     const echoServerPath = Bun.fileURLToPath(new URL("../helpers/echo-server.ts", import.meta.url));
     
     console.log("Using echo server at:", echoServerPath);
@@ -61,3 +58,7 @@ describe("E2E Simple Echo Test", () => {
     }
   }, TIMEOUT);
 }); 
+
+
+
+
