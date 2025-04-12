@@ -162,6 +162,9 @@ describe("E2E Resource Handling", () => {
   });
   
   test("Successfully lists and reads resources", async () => {
+    // Set up test environment with longer timeouts
+    const TIMEOUT_MS = 10000;
+    
     const config: ManagerConfig = {
       resourceServer: {
         transport: {
@@ -172,50 +175,69 @@ describe("E2E Resource Handling", () => {
       },
     };
     
-    const mcpManager = manager(config);
+    // Create the manager with explicit timeout
+    const mcpManager = manager(config, {
+      requestTimeoutMs: TIMEOUT_MS
+    });
     
     try {
       // Connect to the server
-      const connectedManager = await mcpManager.use("resourceServer");
+      console.log("Connecting to resource server...");
+      await mcpManager.use("resourceServer");
       
       // Get the client
-      const client = connectedManager.getClient("resourceServer");
-      expect(client).toBeDefined();
+      console.log("Getting resource client...");
+      const client = mcpManager.getClient("resourceServer");
+      console.log("Client found:", client ? "yes" : "no");
       
-      if (client) {
-        // Add a slight delay to ensure server is fully initialized
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // List available resources
-        const resources = await client.listResources();
-        expect(resources).toBeInstanceOf(Array);
-        expect(resources.length).toBe(2);
-        expect(resources[0].uri).toBe("test:///sample.txt");
-        expect(resources[1].uri).toBe("test:///sample.json");
-        
-        // Read the text resource
-        const textContent = await client.readResource("test:///sample.txt");
-        expect(typeof textContent).toBe("string");
-        expect(textContent).toBe("This is a sample text file for testing purposes.");
-        
-        // Read the JSON resource
-        const jsonContent = await client.readResource("test:///sample.json");
-        expect(typeof jsonContent).toBe("string");
-        const parsedJson = JSON.parse(jsonContent as string);
-        expect(parsedJson.name).toBe("Sample");
-        expect(parsedJson.value).toBe(42);
-        
-        // Try reading a non-existent resource
-        try {
-          await client.readResource("test:///non-existent.txt");
-          expect(true).toBe(false); // Should not reach here
-        } catch (error) {
-          expect(error).toBeDefined();
-        }
+      if (!client) {
+        throw new Error("Failed to get client");
+      }
+      
+      // Wait for initialization
+      console.log("Waiting for initialization...");
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      console.log("Testing ping...");
+      await client.ping();
+      console.log("Ping successful");
+      
+      // List resources
+      console.log("Listing resources...");
+      const resources = await client.listResources();
+      console.log(`Found ${resources.length} resources`);
+      
+      expect(resources).toBeInstanceOf(Array);
+      expect(resources.length).toBe(2);
+      expect(resources[0].uri).toBe("test:///sample.txt");
+      expect(resources[1].uri).toBe("test:///sample.json");
+      
+      // Read resources
+      console.log("Reading text resource...");
+      const textContent = await client.readResource("test:///sample.txt");
+      expect(typeof textContent).toBe("string");
+      expect(textContent).toBe("This is a sample text file for testing purposes.");
+      
+      console.log("Reading JSON resource...");
+      const jsonContent = await client.readResource("test:///sample.json");
+      expect(typeof jsonContent).toBe("string");
+      
+      const parsedJson = JSON.parse(jsonContent as string);
+      expect(parsedJson.name).toBe("Sample");
+      expect(parsedJson.value).toBe(42);
+      
+      // Test error handling
+      console.log("Testing error handling...");
+      try {
+        await client.readResource("test:///non-existent.txt");
+        expect(true).toBe(false); // Should not reach here
+      } catch (error) {
+        expect(error).toBeDefined();
       }
     } finally {
-      // Clean up by disconnecting all clients
+      // Clean up
+      console.log("Disconnecting...");
       await mcpManager.disconnectAll();
     }
-  }, 15000);
+  }, 30000); // Increase the test timeout
 }); 

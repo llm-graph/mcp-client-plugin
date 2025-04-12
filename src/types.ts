@@ -179,6 +179,7 @@ export type PendingRequests = Map<JsonRpcId, RequestResolver>;
 export type Transport = Readonly<{
   send: (message: JsonRpcRequest | JsonRpcNotification) => Promise<void>;
   close: () => Promise<void>;
+  isClosed: () => boolean;
   // Internal details needed for cleanup
   _details: Readonly<{
     type: 'stdio' | 'sse';

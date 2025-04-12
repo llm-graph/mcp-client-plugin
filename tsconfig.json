@@ -35,6 +35,6 @@
     // Bun specific types (install @types/bun)
     "types": ["bun-types"]
   },
-  "include": ["src/*.ts", "test/**/*.ts", "src/index.ts"],
+  "include": ["src/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
