@@ -1,6 +1,6 @@
 import { DEFAULT_REQUEST_TIMEOUT_MS, JSONRPC_VERSION, MCP_PROTOCOL_VERSION, INIT_TIMEOUT_MAX_MS, API_METHODS } from './constants';
 import { ManagerConfig, ManagerOptions, ManagerStateType, Transport, ClientAPI, ManagerAPI, PendingRequests, JsonRpcResponse, ManagerStateInternals, ClientState } from './types';
-import { createMcpError, promiseWithTimeout, log, LOG_LEVELS, copyActiveClients, ManagerRegistryEntry, createJsonRpcRequest, createTransport, handleMessage, createClientApi, ClientStateInternals, disconnectClient } from './utils';
+import { createMcpError, promiseWithTimeout, log, LOG_LEVELS, ManagerRegistryEntry, createJsonRpcRequest, createTransport, handleMessage, createClientApi, ClientStateInternals, disconnectClient } from './utils';
 
 // Global counter for manager instance IDs
 let managerIdCounter = 0;
@@ -9,7 +9,7 @@ let managerIdCounter = 0;
 const globalClientRegistry = new Map<string, ManagerRegistryEntry[]>();
 
 // Helper function to get client API objects
-(activeClients: ManagerStateType['activeClients']): ClientAPI[] => {
+const getClientApis = (activeClients: ManagerStateType['activeClients']): ClientAPI[] => {
   return Object.values(activeClients)
     .filter((client): client is ClientState => 
       client !== undefined && 'clientAPI' in client
@@ -154,7 +154,7 @@ export const manager = (config: ManagerConfig, options?: ManagerOptions): Manage
         // Create the client API
         const [clientApi, internals] = createClientApi(
           serverName, transport, pendingRequests, capabilities, 
-          globalClientRegistry, state
+          state
         );
         
         clientStateInternals = internals;
@@ -245,7 +245,8 @@ export const manager = (config: ManagerConfig, options?: ManagerOptions): Manage
       if (pendingConnections.has(serverName)) {
         try {
           await pendingConnections.get(serverName);
-          return state.activeClients[serverName]?.clientAPI;
+          const client = state.activeClients[serverName] as ClientState | undefined;
+          return client?.clientAPI;
         } catch {
           return undefined;
         }
@@ -255,16 +256,16 @@ export const manager = (config: ManagerConfig, options?: ManagerOptions): Manage
     },
     
     disconnectAll: async (): Promise<void> => {
-      // Get the server names from the active clients
-      const serverNames = Object.keys(state.activeClients);
+      // Use getClientApis to retrieve all APIs
+      const clientApis = getClientApis(state.activeClients);
       
       // Disconnect each client
-      const promises = serverNames.map(name => 
-        state.activeClients[name]?.clientAPI.disconnect()
-          .catch(error => log(LOG_LEVELS.ERROR, `Failed to disconnect ${name}:`, error))
+      const promises = clientApis.map(api => 
+        api.disconnect()
+          .catch(error => log(LOG_LEVELS.ERROR, `Failed to disconnect: ${error}`))
       );
       
-      await Promise.all(promises.filter(Boolean));
+      await Promise.all(promises);
     },
     
     _getState: (): ManagerStateInternals => ({

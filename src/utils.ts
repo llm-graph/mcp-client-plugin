@@ -147,8 +147,7 @@ export type ManagerRegistryEntry = {
 
 export function findClientInOtherManager(
   serverName: string, 
-  registry: Map<string, ManagerRegistryEntry[]>,
-  preventForwarding: boolean = false
+  registry: Map<string, ManagerRegistryEntry[]>
 ): { found: boolean; manager?: ManagerRegistryEntry } {
   const managers = registry.get(serverName);
   if (!managers || managers.length === 0) {
@@ -301,7 +300,6 @@ export const createTransport = async (
     };
 
     // Create the transport for stdio with additional isClosed method
-    const stderrBuffer = '';
     let closed = false;
     
     // Transport interface
@@ -490,14 +488,13 @@ export const createClientApi = (
   transport: Transport, 
   pendingRequests: PendingRequests,
   capabilities?: Readonly<Record<string, unknown>>,
-  registry?: Map<string, ManagerRegistryEntry[]>,
   state?: ManagerStateType
 ): [ClientAPI, ClientStateInternals] => {
   let intentionalDisconnect = false;
   const setIntentionalDisconnect = (value: boolean) => { intentionalDisconnect = value; };
   
   // Create request function
-  const sendRequest = <TResult = unknown>(method: string, params?: unknown, preventForwarding: boolean = false): Promise<TResult> => {
+  const sendRequest = <TResult = unknown>(method: string, params?: unknown): Promise<TResult> => {
     // Simple check: do we have a valid transport?
     if (!transport || transport.isClosed()) {
       return Promise.reject(createMcpError(`Cannot send request to ${serverName}: transport is closed`));
@@ -539,17 +536,17 @@ export const createClientApi = (
   const clientApi = Object.freeze({
     getCapabilities: () => capabilities,
     callTool: <TResult = unknown>(name: string, params: Record<string, unknown>) => 
-      sendRequest<TResult>(API_METHODS.CALL_TOOL, { name, params }, true),
+      sendRequest<TResult>(API_METHODS.CALL_TOOL, { name, params }),
     listTools: () => 
-      sendRequest<{ tools: ReadonlyArray<Tool> }>(API_METHODS.LIST_TOOLS, undefined, true).then(res => res.tools ?? []),
+      sendRequest<{ tools: ReadonlyArray<Tool> }>(API_METHODS.LIST_TOOLS, undefined).then(res => res.tools ?? []),
     readResource: (uri: string) => 
-      sendRequest<{ content: string | Buffer }>(API_METHODS.READ_RESOURCE, { uri }, true).then(res => res.content),
+      sendRequest<{ content: string | Buffer }>(API_METHODS.READ_RESOURCE, { uri }).then(res => res.content),
     listResources: () => 
-      sendRequest<{ resources: ReadonlyArray<Resource> }>(API_METHODS.LIST_RESOURCES, undefined, true).then(res => res.resources ?? []),
+      sendRequest<{ resources: ReadonlyArray<Resource> }>(API_METHODS.LIST_RESOURCES, undefined).then(res => res.resources ?? []),
     listPrompts: () => 
-      sendRequest<{ prompts: ReadonlyArray<Prompt> }>(API_METHODS.LIST_PROMPTS, undefined, true).then(res => res.prompts ?? []),
+      sendRequest<{ prompts: ReadonlyArray<Prompt> }>(API_METHODS.LIST_PROMPTS, undefined).then(res => res.prompts ?? []),
     getPrompt: (name: string, args?: Record<string, unknown>) => 
-      sendRequest<{ prompt: string }>(API_METHODS.GET_PROMPT, { name, args }, true).then(res => res.prompt),
+      sendRequest<{ prompt: string }>(API_METHODS.GET_PROMPT, { name, args }).then(res => res.prompt),
     ping: async () => { 
       const id = generateId();
       const request = createJsonRpcRequest(API_METHODS.PING, undefined, id);
