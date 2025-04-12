@@ -15,7 +15,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { manager } from "../../src/core";
-import type { ManagerConfig, SseTransportConfig, ServerConfig } from "../../src/types";
+import type { ManagerConfig, SseTransportConfig } from "../../src/types";
 
 describe("Manager Initialization & Basic Setup", () => {
   test("Initialize Manager with Empty Configuration", async () => {

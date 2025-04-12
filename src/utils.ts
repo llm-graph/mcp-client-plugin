@@ -56,10 +56,12 @@ export function createJsonRpcErrorResponse(
 }
 
 export function createMcpError(message: string, code?: number, data?: unknown): Error {
-    const error = new Error(message);
-    (error as Error & { code?: number; data?: unknown }).code = code;
-    (error as Error & { code?: number; data?: unknown }).data = data;
-    return error;
+    const customError = new Error(message);
+    Object.defineProperties(customError, {
+        code: { value: code, enumerable: true, writable: true },
+        data: { value: data, enumerable: true, writable: true }
+    });
+    return customError;
 }
 
 export function promiseWithTimeout<T>(

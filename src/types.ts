@@ -137,6 +137,15 @@ export type ClientAPI = Readonly<{
 
 // --- Manager API ---
 
+export type ManagerStateInternals = {
+  state: ManagerStateType;
+  updateState: (newState: ManagerStateType) => void;
+  // Add direct access to ManagerStateType properties for backwards compatibility
+  config: ManagerConfig;
+  options: Readonly<Required<ManagerOptions>>;
+  activeClients: Readonly<Record<string, ClientState>>;
+};
+
 export type ManagerAPI = Readonly<{
   /** Connects to and initializes a server defined in the configuration. */
   use: (serverName: string) => Promise<ManagerAPI>; // Return Promise<ManagerAPI> to allow awaiting connection
@@ -151,7 +160,7 @@ export type ManagerAPI = Readonly<{
   disconnectAll: () => Promise<void>;
 
   /** Returns the current immutable state of the manager (for debugging or advanced use). */
-  _getState: () => ManagerStateType; // Internal/debug access
+  _getState: () => ManagerStateInternals; // Updated return type
 }>;
 
 // --- Internal State Types ---
