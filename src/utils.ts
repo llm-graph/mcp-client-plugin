@@ -1,5 +1,6 @@
-import { JSONRPC_VERSION, DEFAULT_REQUEST_TIMEOUT_MS, SSE_CONNECTION_TIMEOUT_MS, PROCESS_TERMINATION_TIMEOUT_MS, API_METHODS } from "./constants";
+import { JSONRPC_VERSION, DEFAULT_REQUEST_TIMEOUT_MS, PROCESS_TERMINATION_TIMEOUT_MS, API_METHODS } from "./constants";
 import { JsonRpcMessage, JsonRpcId, JsonRpcRequest, JsonRpcNotification, JsonRpcResponse, ManagerStateType, TransportConfig, StdioTransportConfig, SseTransportConfig, Transport, PendingRequests, NotificationHandler, ClientState, Tool, Resource, Prompt, ClientAPI } from "./types";
+import { EventSourceCompatible, ReaderCompatible } from "./bun-types";
 
   
 let idCounter = 0;
@@ -202,12 +203,12 @@ export const createTransport = async (
     if (!proc.stdout || !proc.stdin || !proc.stderr) 
       throw createMcpError(`Failed to get stdio streams for ${serverName}`);
 
-    // Create readers for streams
-    const stdoutReader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-    const stderrReader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
+    // Create readers for streams - use as ReaderCompatible for type compatibility
+    const stdoutReader = (proc.stdout as ReadableStream<Uint8Array>).getReader() as ReaderCompatible<Uint8Array>;
+    const stderrReader = (proc.stderr as ReadableStream<Uint8Array>).getReader() as ReaderCompatible<Uint8Array>;
 
-    // Process streams
-    const processStream = async (reader: ReadableStreamDefaultReader<Uint8Array>, processor: (t: string, b: string) => string, 
+    // Process streams - update the type signature
+    const processStream = async (reader: ReaderCompatible<Uint8Array>, processor: (t: string, b: string) => string, 
       buffer = '', errorMsg: string, errFn = errorHandler) => {
       try {
         let buf = buffer;
@@ -340,53 +341,102 @@ export const createTransport = async (
   } else { // SSE transport
     const sseCfg = config as SseTransportConfig;
     const abortController = new AbortController();
-    let eventSource: EventSource | null = null;
+    
+    // Update EventSource type
+    let eventSource: EventSourceCompatible | null = null;
     let connected = false;
     let connectPromise: Promise<void> | null = null;
-
-    // Connection management
+    
+    // Define the timeout constant only where it's used
+    const SSE_CONNECTION_TIMEOUT_MS = 10000;
+    
     const connect = (): Promise<void> => {
       if (connectPromise) return connectPromise;
       
       connectPromise = new Promise<void>((resolve, reject) => {
         try {
-          eventSource = new EventSource(sseCfg.url, {});
+          // Cast to any to avoid type checking during instantiation
+          eventSource = new (globalThis as any).EventSource(sseCfg.url) as EventSourceCompatible;
           
           promiseWithTimeout(
             new Promise<void>((connectionResolve) => {
-              eventSource!.onopen = () => { 
-                connected = true; 
-                connectionResolve();
-                resolve(); 
-              };
+              // Choose between addEventListener and onopen depending on which exists
+              if (eventSource!.addEventListener) {
+                eventSource!.addEventListener('open', () => { 
+                  connected = true; 
+                  connectionResolve();
+                  resolve(); 
+                });
+              } else if (eventSource!.onopen !== undefined) {
+                eventSource!.onopen = () => { 
+                  connected = true; 
+                  connectionResolve();
+                  resolve(); 
+                };
+              }
             }),
             SSE_CONNECTION_TIMEOUT_MS,
             `SSE connection timeout for ${serverName}`
           ).catch(err => {
-            if (eventSource) { eventSource.close(); eventSource = null; }
+            if (eventSource) { 
+              if (typeof eventSource.close === 'function') {
+                eventSource.close();
+              }
+              eventSource = null; 
+            }
             connectPromise = null;
             reject(err);
           });
           
-          eventSource.onmessage = ({ data }) => {
-            try {
-              const message = safeJsonParse(data);
-              message 
-                ? messageHandler(message) 
-                : errorHandler(createMcpError(`Invalid JSON via SSE: ${data.substring(0, 100)}...`));
-            } catch (err) {
-              errorHandler(createMcpError(`SSE message error: ${String(err)}`));
-            }
-          };
+          // Handle message events
+          if (eventSource.addEventListener) {
+            eventSource.addEventListener('message', (event: Event) => {
+              try {
+                // Type cast to MessageEvent
+                const messageEvent = event as MessageEvent;
+                const data = messageEvent.data as string;
+                const message = safeJsonParse(data);
+                message 
+                  ? messageHandler(message) 
+                  : errorHandler(createMcpError(`Invalid JSON via SSE: ${data.substring(0, 100)}...`));
+              } catch (err) {
+                errorHandler(createMcpError(`SSE message error: ${String(err)}`));
+              }
+            });
+          } else if (eventSource.onmessage !== undefined) {
+            eventSource.onmessage = (event: any) => {
+              try {
+                const data = event.data as string;
+                const message = safeJsonParse(data);
+                message 
+                  ? messageHandler(message) 
+                  : errorHandler(createMcpError(`Invalid JSON via SSE: ${data.substring(0, 100)}...`));
+              } catch (err) {
+                errorHandler(createMcpError(`SSE message error: ${String(err)}`));
+              }
+            };
+          }
   
-          eventSource.onerror = () => {
-            if (!connected) {
-              reject(createMcpError(`SSE connection error for ${serverName}`));
-              connectPromise = null;
-            } else {
-              errorHandler(createMcpError(`SSE error for ${serverName}`));
-            }
-          };
+          // Handle error events
+          if (eventSource.addEventListener) {
+            eventSource.addEventListener('error', () => {
+              if (!connected) {
+                reject(createMcpError(`SSE connection error for ${serverName}`));
+                connectPromise = null;
+              } else {
+                errorHandler(createMcpError(`SSE error for ${serverName}`));
+              }
+            });
+          } else if (eventSource.onerror !== undefined) {
+            eventSource.onerror = () => {
+              if (!connected) {
+                reject(createMcpError(`SSE connection error for ${serverName}`));
+                connectPromise = null;
+              } else {
+                errorHandler(createMcpError(`SSE error for ${serverName}`));
+              }
+            };
+          }
           
         } catch (err) {
           reject(createMcpError(`SSE connection failed: ${String(err)}`));
@@ -435,7 +485,12 @@ export const createTransport = async (
       },
       close: async () => {
         abortController.abort('Client closing connection');
-        if (eventSource) { eventSource.close(); eventSource = null; }
+        if (eventSource) { 
+          if (typeof eventSource.close === 'function') {
+            eventSource.close();
+          }
+          eventSource = null;
+        }
         connected = false;
         connectPromise = null;
       },

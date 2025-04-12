@@ -2,17 +2,27 @@
   "name": "mcp-client-plugin",
   "version": "0.1.0",
   "description": "Zero Dependencies, Pure Functionality MCP Client Plugin Built for Bun",
-  "module": "index.ts",
+  "module": "dist/index.js",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
-    "build": "bun build ./index.ts --outdir ./dist --target node",
+    "clean": "rm -rf dist",
+    "build": "bun run clean && bun build ./src/index.ts --outdir ./dist --target node --format esm && tsc --project tsconfig.build.json",
+    "typecheck": "bun tsc --noEmit",
     "test": "bun test",
-    "test:unit": "bun test test/unit",
-    "test:e2e": "bun test test/e2e",
-    "check": "bun tsc --noEmit",
+    "test:watch": "bun test --watch",
     "prepublishOnly": "bun run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/llm-graph/mcp-client-plugin.git"
   },
   "keywords": [
     "mcp",

@@ -184,7 +184,8 @@ export type Transport = Readonly<{
   _details: Readonly<{
     type: 'stdio' | 'sse';
     process?: Subprocess;
-    sseSource?: EventSource; // Bun's EventSource type if applicable, or AbortController
+    // Use a more generic reference that works with both Bun's EventSource and DOM EventSource
+    sseSource?: unknown;
     abortController?: AbortController;
   }>;
 }>;

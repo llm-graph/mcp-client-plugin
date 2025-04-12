@@ -35,3 +35,9 @@ export type {
   JsonRpcMessage,
   JsonRpcId
 } from './types'; 
+
+// Export compatibility types
+export type {
+  EventSourceCompatible,
+  ReaderCompatible
+} from './bun-types'; 
