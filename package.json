@@ -17,6 +17,8 @@
     "build": "bun run clean && bun build ./src/index.ts --outdir ./dist --target node --format esm && tsc --project tsconfig.build.json",
     "typecheck": "bun tsc --noEmit",
     "test": "bun test",
+    "test:unit": "bun test test/unit",
+    "test:e2e": "bun test test/e2e",
     "test:watch": "bun test --watch",
     "prepublishOnly": "bun run build"
   },
@@ -34,7 +36,10 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@types/bun": "latest"
+    "@modelcontextprotocol/server-filesystem": "^2025.3.28",
+    "@modelcontextprotocol/server-memory": "^0.6.2",
+    "@types/bun": "latest",
+    "@wrtnlabs/calculator-mcp": "^0.1.3"
   },
   "peerDependencies": {
     "typescript": "^5"

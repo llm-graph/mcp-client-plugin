@@ -9,21 +9,18 @@ You have to follow these rules:
 1. Strictly follow [README.md](mdc:README.md) requirements
 2. Use functional programming techniques exclusively
 3. Maintain immutability throughout
-4. Implement e2e tests for all features with real CLI and file operations
-5. Ensure all changes pass `bun test`
-6. Write isolated test cases using bun:test without mocks
-7. Create challenging, thorough test cases that fully verify implementation
-8. Test cases should match expected [README.md](mdc:README.md) requirements
-9. Use DRY principle across all files
-10. Always have bun-first mindset
+4. Ensure all changes pass `bun test`
+5. Write isolated test cases using bun:test without mocks
+6. Use DRY principle across all files
+7. Always have bun-first mindset
 
 ## Don't:
-11. Avoid OOP, classes, or inheritance
-12. Avoid traditional methods (use higher order functions instead)
-13. Don't write comments
-14. Don't use `any` or `unknown` types
-15. Do not create code of simulation, stub, mock, etc. you should produce code of real expected features
-16. Should not create another files other than these:
+8. Avoid OOP, classes, or inheritance
+9. Avoid traditional methods (use higher order functions instead)
+10. Don't write comments
+11. Don't use `any` or `unknown` types
+12. Do not create code of simulation, stub, mock, etc. you should produce code of real expected features
+13. Should not create another files other than these:
    - `src/constants.ts` configuration defaults
    - `src/core.ts` - Core functionality
    - `src/types.ts` - Type definitions

@@ -5,6 +5,23 @@ export {
   MCP_PROTOCOL_VERSION 
 } from './constants';
 
+export {
+  createMcpServerWrapper,
+  enableMcpDebugging,
+  LOG_LEVELS
+} from './utils';
+
+// Export test utilities
+export {
+  SERVER_PACKAGES,
+  findServerPackage,
+  createTestServerConfig,
+  createTestEnvironment,
+  getPackageRunnerCommand,
+  extractCalculatorText,
+  assertCalculatorResult
+} from './test-utils';
+
 export type {
   // Configuration Types
   StdioTransportConfig,
@@ -40,4 +57,9 @@ export type {
 export type {
   EventSourceCompatible,
   ReaderCompatible
-} from './bun-types'; 
+} from './types'; 
+
+export type {
+  PackageRunner,
+  CalculatorToolResponse
+} from './test-utils'; 

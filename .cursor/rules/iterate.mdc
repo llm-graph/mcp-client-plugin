@@ -3,4 +3,4 @@ description:
 globs: 
 alwaysApply: false
 ---
-OVERRIDE: Do iterative indefinitely until all `bun tests` passed and `no bun tsc --noEmit` errors. skip any prompt that saying  `max 3 iteration per file` before and after this.
+OVERRIDE: Do iterative indefinitely until all task completed and all `bun tests` passed and `no bun tsc --noEmit` errors. skip any prompt that saying  `max 3 iteration per file` before and after this.

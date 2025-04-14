@@ -16,10 +16,29 @@ export const API_METHODS = {
   INITIALIZE: 'initialize',
   INITIALIZED: 'initialized',
   PING: 'ping',
-  CALL_TOOL: 'call_tool',
-  LIST_TOOLS: 'list_tools',
-  READ_RESOURCE: 'read_resource',
-  LIST_RESOURCES: 'list_resources',
+  CALL_TOOL: 'tools/call',
+  LIST_TOOLS: 'tools/list',
+  READ_RESOURCE: 'resources/read',
+  LIST_RESOURCES: 'resources/list',
   LIST_PROMPTS: 'prompts/list',
-  GET_PROMPT: 'prompts/get'
+  GET_PROMPT: 'prompts/get',
+  LIST_RESOURCE_TEMPLATES: 'resources/templates/list',
+  COMPLETE: 'complete',
+  SET_LOGGING_LEVEL: '$/logging/level'
+} as const;
+
+// Error codes
+export const ERROR_CODES = {
+  PARSE_ERROR: -32700,
+  INVALID_REQUEST: -32600,
+  METHOD_NOT_FOUND: -32601,
+  INVALID_PARAMS: -32602,
+  INTERNAL_ERROR: -32603,
+  SERVER_ERROR: -32000 // -32000 to -32099 reserved for server errors
+} as const;
+
+// Notification methods
+export const NOTIFICATION_METHODS = {
+  PROGRESS: '$/progress',
+  LOGGING_MESSAGE: 'notifications/message'
 } as const;

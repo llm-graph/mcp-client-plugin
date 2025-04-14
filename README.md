@@ -215,6 +215,9 @@ The object returned by `manager()` and `.use()`.
 *   **.getClient(serverName: string)**:
     *   Retrieves the `ClientAPI` for an already connected server.
     *   **Returns**: `ClientAPI | undefined`.
+*   **.getClientAsync(serverName: string)**:
+    *   Retrieves the `ClientAPI` for an already connected server, waiting for pending connections.
+    *   **Returns**: `Promise<ClientAPI | undefined>`.
 *   **.disconnectAll()**:
     *   Disconnects all active clients and terminates their associated processes/connections.
     *   **Returns**: `Promise<void>`.
@@ -224,15 +227,67 @@ The object returned by `manager()` and `.use()`.
 
 The object returned by `manager.getClient()`. Contains methods to interact with a *specific* MCP server.
 
-*   `.getCapabilities()`: Returns server capabilities.
-*   `.callTool(name, params)`: Calls a tool.
-*   `.listTools()`: Lists tools.
-*   `.readResource(uri)`: Reads a resource.
-*   `.listResources()`: Lists resources.
-*   `.listPrompts()`: Lists prompts.
-*   `.getPrompt(name, args?)`: Gets a prompt template.
-*   `.ping()`: Checks connectivity.
-*   `.disconnect()`: Disconnects *this specific* client/server.
+*   `.getCapabilities()`
+    *   Returns the capabilities reported by the server during initialization.
+    *   **Returns**: `Record<string, unknown> | undefined`
+
+*   `.callTool(name, params, options?)`
+    *   Calls a tool on the server with optional progress tracking.
+    *   **Parameters**:
+        *   `name: string` - The name of the tool to call.
+        *   `params: Record<string, unknown>` - The parameters to pass to the tool.
+        *   `options?: { onProgress?: (progress: Progress) => void }` - Optional progress tracking callback.
+    *   **Returns**: `Promise<TResult>` - A promise resolving to the tool result.
+
+*   `.listTools()`
+    *   Lists tools available on the server.
+    *   **Returns**: `Promise<ReadonlyArray<Tool>>` - Array of available tools.
+
+*   `.readResource(uri)`
+    *   Reads a resource from the server, returning structured content.
+    *   **Parameters**:
+        *   `uri: string` - The URI of the resource to read.
+    *   **Returns**: `Promise<ReadResourceResult>` - The resource content with metadata.
+
+*   `.listResources()`
+    *   Lists resources available on the server.
+    *   **Returns**: `Promise<ReadonlyArray<Resource>>` - Array of available resources.
+
+*   `.listPrompts()`
+    *   Lists prompts available on the server.
+    *   **Returns**: `Promise<ReadonlyArray<Prompt>>` - Array of available prompts.
+
+*   `.getPrompt(name, args?)`
+    *   Gets a prompt template with arguments filled in, returning structured messages.
+    *   **Parameters**:
+        *   `name: string` - The name of the prompt to get.
+        *   `args?: Record<string, unknown>` - Optional arguments to fill in the prompt template.
+    *   **Returns**: `Promise<GetPromptResult>` - The prompt with filled arguments and message structure.
+
+*   `.listResourceTemplates()`
+    *   Lists resource templates available on the server.
+    *   **Parameters**: None
+    *   **Returns**: `Promise<ReadonlyArray<ResourceTemplate>>` - Array of available resource templates.
+
+*   `.complete(params)`
+    *   Completes an argument for a prompt, providing autocompletion suggestions.
+    *   **Parameters**:
+        *   `params: { ref: { type: string; name: string }; argument: { name: string; value: string } }` - Reference to the prompt and argument to complete.
+    *   **Returns**: `Promise<CompleteResult>` - Completion suggestions as an array of values.
+
+*   `.setLoggingLevel(level)`
+    *   Sets the logging level for the server, controlling verbosity of log messages.
+    *   **Parameters**:
+        *   `level: LoggingLevel` - One of 'debug', 'info', 'warning', or 'error'.
+    *   **Returns**: `Promise<void>`
+
+*   `.ping()`
+    *   Checks connectivity with the server.
+    *   **Returns**: `Promise<void>`
+
+*   `.disconnect()`
+    *   Disconnects this specific client and terminates its server process/connection.
+    *   **Returns**: `Promise<void>`
 
 *(Refer to `src/types.ts` for detailed parameter and return types)*
 
@@ -244,13 +299,102 @@ Provide an `onNotification` callback in the `manager` options to react to notifi
 const handleNotifications: NotificationHandler = (serverName, notification) => {
   if (notification.method === '$/progress') {
     console.log(`Progress from ${serverName}:`, notification.params);
+  } else if (notification.method === 'notifications/message') {
+    console.log(`Log from ${serverName}:`, notification.params);
   } else {
     console.log(`Notification [${serverName}]: ${notification.method}`);
   }
 };
+```
 
-const mcpManager = await manager(config, { onNotification: handleNotifications })
-  // ... .use() calls
+## 📝 Examples
+
+### Tracking Progress for Long-Running Tools
+
+```typescript
+const mcpManager = await manager(config)
+  .use('memoryServer');
+
+const memory = mcpManager.getClient('memoryServer');
+
+if (memory) {
+  const result = await memory.callTool(
+    'longRunningTask', 
+    { input: 'some large data' },
+    { 
+      onProgress: (progress) => {
+        console.log(`Progress: ${progress.progress}/${progress.total}`);
+      } 
+    }
+  );
+  console.log('Task completed with result:', result);
+}
+```
+
+### Working with Resource Templates
+
+```typescript
+const mcpManager = await manager(config)
+  .use('fileSystem');
+
+const fs = mcpManager.getClient('fileSystem');
+
+if (fs) {
+  // List available resource templates
+  const templates = await fs.listResourceTemplates();
+  console.log('Available templates:', templates);
+  
+  // Read a resource using a templated URI
+  const logResource = await fs.readResource('file:///logs/app.log');
+  console.log('Log content:', logResource.contents[0].text);
+}
+```
+
+### Auto-completing Arguments for Prompts
+
+```typescript
+const mcpManager = await manager(config)
+  .use('promptServer');
+
+const promptClient = mcpManager.getClient('promptServer');
+
+if (promptClient) {
+  // Get completion suggestions for a prompt argument
+  const completions = await promptClient.complete({
+    ref: { type: 'ref/prompt', name: 'countryPoem' },
+    argument: { name: 'name', value: 'germ' }
+  });
+  
+  console.log('Suggested completions:', completions.completion.values);
+  // Output: Suggested completions: ['Germany']
+  
+  // Use the completed value to get the prompt
+  const prompt = await promptClient.getPrompt('countryPoem', { name: 'Germany' });
+  console.log('Prompt messages:', prompt.messages);
+}
+```
+
+### Setting Logging Levels
+
+```typescript
+const mcpManager = await manager(config, {
+  onNotification: (serverName, notification) => {
+    if (notification.method === 'notifications/message') {
+      const { level, message } = notification.params;
+      console.log(`[${level}] ${serverName}: ${message}`);
+    }
+  }
+}).use('debugServer');
+
+const debug = mcpManager.getClient('debugServer');
+
+if (debug) {
+  // Set the logging level to receive more detailed logs
+  await debug.setLoggingLevel('debug');
+  
+  // Now the server will send debug-level log messages
+  // which will be captured by the onNotification handler
+}
 ```
 
 ## ⏳ Timeouts & Error Handling
